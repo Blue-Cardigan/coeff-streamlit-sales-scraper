@@ -7,7 +7,7 @@ def load_data(file_input):
         st.info("Please upload a CSV file to begin.")
         return None
     try:
-        df = pd.read_csv(file_input)
+        df = pd.read_csv(file_input, engine='python')
         return df
     except FileNotFoundError: # This error is less likely if using file_uploader, but good for path inputs
         st.error(f"Error: The file was not found.")
@@ -15,8 +15,8 @@ def load_data(file_input):
     except pd.errors.EmptyDataError:
         st.error("Error: The uploaded CSV file is empty.")
         return None
-    except pd.errors.ParserError:
-        st.error("Error: Could not parse the CSV file. Please ensure it's a valid CSV.")
+    except pd.errors.ParserError as e:
+        st.error(f"Error: Could not parse the CSV file. Pandas error: {e}. Please ensure it's a valid CSV.")
         return None
     except Exception as e:
         st.error(f"Error loading or parsing CSV file: {e}")
