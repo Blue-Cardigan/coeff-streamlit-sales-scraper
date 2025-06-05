@@ -1,16 +1,25 @@
 import pandas as pd
 import streamlit as st
 
-def load_data(csv_file_path):
-    """Loads data from a CSV file and returns a DataFrame."""
+def load_data(file_input):
+    """Loads data from a CSV file (path or file-like object) and returns a DataFrame."""
+    if file_input is None:
+        st.info("Please upload a CSV file to begin.")
+        return None
     try:
-        df = pd.read_csv(csv_file_path)
+        df = pd.read_csv(file_input)
         return df
-    except FileNotFoundError:
-        st.error(f"Error: The file {csv_file_path} was not found.")
+    except FileNotFoundError: # This error is less likely if using file_uploader, but good for path inputs
+        st.error(f"Error: The file was not found.")
+        return None
+    except pd.errors.EmptyDataError:
+        st.error("Error: The uploaded CSV file is empty.")
+        return None
+    except pd.errors.ParserError:
+        st.error("Error: Could not parse the CSV file. Please ensure it's a valid CSV.")
         return None
     except Exception as e:
-        st.error(f"Error loading CSV file: {e}")
+        st.error(f"Error loading or parsing CSV file: {e}")
         return None
 
 def get_website_list(df):

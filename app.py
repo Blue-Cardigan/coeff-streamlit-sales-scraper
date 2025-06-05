@@ -9,7 +9,7 @@ from llm_processor import get_openai_client, get_structured_responses, FIXED_QUE
 st.set_page_config(layout="wide", page_title="Website Analyzer AI")
 
 # --- Global Variables ---
-CSV_FILE_PATH = "apollo-contacts-export-batch1-5.csv"
+# CSV_FILE_PATH = "apollo-contacts-export-batch1-5.csv" # Removed
 
 # Helper function to convert results to CSV for download
 @st.cache_data # Cache the conversion
@@ -19,10 +19,13 @@ def convert_df_to_csv(df):
 # --- Main App ---
 def main():
     st.title("🤖 Website Content Analyzer AI")
-    st.markdown("This app scrapes websites from a CSV, extracts content, and uses AI to answer predefined questions. Caching is used for web scraping and AI calls to speed up repeated analyses.")
+    st.markdown("Upload a CSV file with website URLs. The app will scrape them, extract content, and use AI to answer predefined questions. Caching is used for web scraping and AI calls to speed up repeated analyses.")
 
     # --- Sidebar ---
     st.sidebar.header("Configuration")
+    
+    uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"], help="CSV should contain a 'Website' column with URLs.")
+    
     openai_api_key_env = os.getenv("OPENAI_API_KEY")
     
     if not openai_api_key_env:
@@ -31,7 +34,7 @@ def main():
     else:
         st.sidebar.success("OPENAI_API_KEY found in environment.")
 
-    st.sidebar.info(f"Using CSV file: `{CSV_FILE_PATH}`. Clear cache if you modify underlying data or scraping/LLM logic significantly (see `caching.py`).")
+    st.sidebar.info("Clear cache if you modify underlying data or scraping/LLM logic significantly (see `caching.py`).")
     if st.sidebar.button("Clear Cache (Scraping & LLM)"):
         from caching import scrape_memory, llm_memory
         scrape_memory.clear()
@@ -39,15 +42,20 @@ def main():
         st.sidebar.success("Scraping and LLM caches cleared!")
 
     # --- Load Data ---
-    data_df = load_data(CSV_FILE_PATH)
+    data_df = None
+    if uploaded_file is not None:
+        data_df = load_data(uploaded_file)
+    else:
+        st.info("Please upload a CSV file using the sidebar to start analysis.")
+        return # Exit early if no file is uploaded
 
     if data_df is None:
-        st.error(f"Could not load data from {CSV_FILE_PATH}. Please ensure the file exists and is correctly formatted.")
-        return
+        # load_data in utils.py already shows an error, st.info("Could not load data from the uploaded CSV.") is redundant
+        return # Exit if data loading failed
 
     websites = get_website_list(data_df)
     if not websites:
-        st.warning("No valid websites found in the CSV to process.")
+        st.warning("No valid websites (starting with http:// or https://) found in the 'Website' column of the uploaded CSV, or the column is missing/empty.")
         return
 
     # Extract question texts for display and column headers
@@ -90,14 +98,17 @@ def main():
     
     # --- Batch Analysis & Download ---
     st.header("Batch Analysis of All Websites")
-    st.markdown("Process all valid websites from the CSV and download the results as a CSV file.")
+    st.markdown("Process all valid websites from the uploaded CSV and download the results as a CSV file.")
 
     if not openai_api_key_env:
         st.warning("OpenAI API Key is required for batch analysis. Please set it in your environment variables.")
     
-    if st.button("Analyze All Websites & Prepare Results", disabled=(not openai_api_key_env)):
+    if st.button("Analyze All Websites & Prepare Results", disabled=(not openai_api_key_env or data_df is None)):
         if not openai_api_key_env:
             st.error("Cannot perform batch analysis without OpenAI API Key.")
+            return
+        if data_df is None: # Should be caught by the button's disabled state, but good check
+            st.error("Cannot perform batch analysis without uploaded CSV data.")
             return
 
         all_results = []
@@ -144,7 +155,7 @@ def main():
             # Ensure all columns exist, fill missing with empty string or error msg if necessary
             for col in column_order:
                 if col not in results_df.columns:
-                    results_df[col] = "Not processed/Missing"
+                    results_df[col] = "Not processed/Missing" # Should not happen if initialized properly
             results_df = results_df[column_order]
             
             st.subheader("Batch Analysis Results Summary")
