@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import os # Added for OPENAI_API_KEY retrieval
 from utils import load_data, get_website_list
-from scraper import scrape_website
-from llm_processor import get_openai_client, get_structured_responses, FIXED_QUESTIONS
+from scraper import scrape_page_data, crawl_website
+from llm_processor import get_structured_responses, FIXED_QUESTIONS
 
 # --- App Configuration ---
 st.set_page_config(layout="wide", page_title="Website Analyzer AI")
@@ -25,6 +25,11 @@ def main():
     st.sidebar.header("Configuration")
     
     uploaded_file = st.sidebar.file_uploader("Upload your CSV file", type=["csv"], help="CSV should contain a 'Website' column with URLs.")
+    
+    # Crawl Parameters
+    st.sidebar.subheader("Crawling Options")
+    max_depth = st.sidebar.number_input("Max Crawl Depth", min_value=0, max_value=5, value=1, help="How many link levels to follow from the start page. 0 means only the start page, 1 means start page + its direct links, etc.")
+    max_pages = st.sidebar.number_input("Max Pages per Site", min_value=1, max_value=50, value=5, help="Maximum number of pages to scrape for each website during crawling.")
     
     openai_api_key_env = os.getenv("OPENAI_API_KEY")
     
@@ -70,31 +75,59 @@ def main():
         if not openai_api_key_env:
             st.error("OpenAI API Key is required for analysis. Please set it.")
         else:
-            with st.spinner(f"Scraping {selected_website}..."):
-                scraped_content = scrape_website(selected_website) 
+            # Use crawl_website instead of scrape_page_data
+            with st.spinner(f"Crawling {selected_website} (depth: {max_depth}, max pages: {max_pages})..."):
+                # max_depth and max_pages are now available from the sidebar
+                crawled_pages_data = crawl_website(selected_website, max_depth, max_pages)
             
-            if scraped_content:
-                st.success(f"Website scraped successfully! (Content length: {len(scraped_content)} chars)")
-                with st.expander("View Scraped Content (first 2000 characters)", expanded=False):
-                    st.text_area("Scraped Text", scraped_content[:2000], height=300, disabled=True, key=f"text_{selected_website}")
+            aggregated_text = ""
+            main_page_content_display = "No content retrieved from the main page."
+            successfully_crawled_pages = 0
+            errors_encountered = []
+
+            if crawled_pages_data:
+                for page_data in crawled_pages_data:
+                    if page_data.get('text') and not page_data.get('error'):
+                        successfully_crawled_pages += 1
+                        # Add a separator for clarity if multiple pages are aggregated
+                        aggregated_text += page_data['text'] + "\n\n--- Page Separator ---\n\n"
+                        # Try to get content from the originally selected URL for display
+                        if page_data['url'] == selected_website: # Check against the input selected_website
+                           main_page_content_display = page_data['text']
+                    elif page_data.get('error'):
+                        errors_encountered.append(f"Error on {page_data.get('url', 'unknown URL')}: {page_data.get('error')}")
+                
+                # If main_page_content_display is still the default and we have some aggregated_text, use that for display
+                if main_page_content_display == "No content retrieved from the main page." and aggregated_text:
+                    main_page_content_display = aggregated_text.split("\n\n--- Page Separator ---\n\n")[0]
+
+                st.success(f"Crawling complete! {successfully_crawled_pages} page(s) scraped successfully. Total content length: {len(aggregated_text)} chars.")
+                if errors_encountered:
+                    with st.expander("View Crawling Errors", expanded=False):
+                        for err in errors_encountered:
+                            st.warning(err)
+
+                with st.expander("View Content from Main Page (first 2000 characters)", expanded=False):
+                    st.text_area("Main Page Scraped Text", main_page_content_display[:2000], height=300, disabled=True, key=f"text_{selected_website}_main")
                 
                 if st.button("Analyze Content with AI", key=f"analyze_{selected_website}"):
-                    client_config = {"api_key": openai_api_key_env}
-                    with st.spinner("AI is thinking... This might take a moment."):
-                        # Pass the full FIXED_QUESTIONS config
-                        responses = get_structured_responses(scraped_content, FIXED_QUESTIONS, client_config)
-                    
-                    st.subheader("AI Analysis Results:")
-                    if responses:
-                        # responses keys are already question texts, matching question_texts order if LLM returns all
-                        for q_text in question_texts: 
-                            answer = responses.get(q_text, "Not answered")
-                            st.markdown(f"**❓ {q_text}**")
-                            st.info(f"{answer if answer else 'No answer generated.'}")
+                    if not aggregated_text:
+                        st.warning("No text content was successfully scraped from the website. Cannot analyze.")
                     else:
-                        st.error("Could not retrieve AI responses.")
+                        client_config = {"api_key": openai_api_key_env}
+                        with st.spinner("AI is thinking... This might take a moment."):
+                            responses = get_structured_responses(aggregated_text, FIXED_QUESTIONS, client_config)
+                        
+                        st.subheader("AI Analysis Results:")
+                        if responses:
+                            for q_text in question_texts: 
+                                answer = responses.get(q_text, "Not answered")
+                                st.markdown(f"**❓ {q_text}**")
+                                st.info(f"{answer if answer else 'No answer generated.'}")
+                        else:
+                            st.error("Could not retrieve AI responses.")
             else:
-                st.error(f"Failed to scrape content from {selected_website}.")
+                st.error(f"Failed to crawl or retrieve any data from {selected_website}.")
     
     # --- Batch Analysis & Download ---
     st.header("Batch Analysis of All Websites")
@@ -117,22 +150,47 @@ def main():
         status_text = st.empty()
 
         for i, website_url in enumerate(websites):
-            status_text.text(f"Processing ({i+1}/{total_websites}): {website_url}")
+            status_text.text(f"Processing ({i+1}/{total_websites}): {website_url} (Depth: {max_depth}, Pages: {max_pages})")
             try:
-                scraped_content = scrape_website(website_url) 
+                # Use crawl_website for batch processing
+                crawled_pages_data = crawl_website(website_url, max_depth, max_pages)
+                
+                aggregated_site_text = ""
+                successfully_crawled_pages_count = 0
+                site_errors = []
+
+                if crawled_pages_data:
+                    for page_data in crawled_pages_data:
+                        if page_data.get('text') and not page_data.get('error'):
+                            successfully_crawled_pages_count += 1
+                            aggregated_site_text += page_data['text'] + "\n\n--- Page Separator ---\n\n"
+                        elif page_data.get('error'):
+                            site_errors.append(f"Error on {page_data.get('url', 'sub-page')}: {page_data.get('error')}")
                 
                 current_result = {"Website URL": website_url}
-                # Initialize with default error message for all question texts
+                # Initialize with default message
                 for q_text in question_texts: 
-                    current_result[q_text] = "Error: Scraping failed or no content"
+                    current_result[q_text] = "Error: Crawling failed, no content, or AI analysis issue"
 
-                if scraped_content:
+                if aggregated_site_text:
+                    st.write(f"Crawled {successfully_crawled_pages_count} pages for {website_url}. Total content: {len(aggregated_site_text)} chars.")
+                    if site_errors:
+                        st.write(f"Errors encountered during crawl for {website_url}: {', '.join(site_errors[:2])}...") # Show a few errors
+                    
                     client_config = {"api_key": openai_api_key_env}
-                    # Pass the full FIXED_QUESTIONS config
-                    ai_responses = get_structured_responses(scraped_content, FIXED_QUESTIONS, client_config)
+                    ai_responses = get_structured_responses(aggregated_site_text, FIXED_QUESTIONS, client_config)
                     current_result.update(ai_responses) # Update with actual answers
-                else:
-                    st.warning(f"Skipping AI analysis for {website_url} due to scraping issues.")
+                elif crawled_pages_data: # Crawl happened but no text yielded, or only errors
+                    warning_msg = f"Crawling for {website_url} yielded no text content."
+                    if site_errors:
+                        warning_msg += f" Errors: {', '.join(site_errors[:2])}..."
+                    st.warning(warning_msg)
+                    for q_text in question_texts: 
+                        current_result[q_text] = "No text content from crawl"
+                else: # crawl_website returned empty list or None
+                    st.warning(f"Skipping AI analysis for {website_url} due to crawling issues (no data returned from crawl_website).")
+                    for q_text in question_texts: 
+                        current_result[q_text] = "Crawling returned no data"
                 
                 all_results.append(current_result)
 

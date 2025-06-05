@@ -20,6 +20,63 @@ FIXED_QUESTIONS = [
         "id": "technologies_industries",
         "text": "Are there any specific technologies or industries mentioned that this company focuses on according to the website?",
         "type": "text"
+    },
+    {
+        "id": "company_size",
+        "text": "What is the company size found on the website?",
+        "type": "text"
+    },
+    {
+        "id": "team_in_house",
+        "text": "Based on the website, is the team mostly in-house (not primarily outsourced contributors)?",
+        "type": "json_yes_no",
+        "json_key": "team_in_house_response"
+    },
+    {
+        "id": "sells_product_not_services",
+        "text": "Does the company\\'s website indicate it sells a distinct software or data product, rather than primarily offering services?",
+        "type": "json_yes_no",
+        "json_key": "sells_product_response"
+    },
+    {
+        "id": "funding_type",
+        "text": "Does the website mention if the company is VC-backed or bootstrapped?",
+        "type": "text"
+    },
+    {
+        "id": "recent_funding",
+        "text": "Does the website mention any recent funding rounds or investments?",
+        "type": "json_yes_no",
+        "json_key": "recent_funding_response"
+    },
+    {
+        "id": "hiring_product_engineering",
+        "text": "Does the website indicate they are currently hiring for product or engineering roles?",
+        "type": "json_yes_no",
+        "json_key": "hiring_product_engineering_response"
+    },
+    {
+        "id": "mentions_ai_automation_analytics",
+        "text": "Does the company\\'s website mention the use of AI, automation, or analytics in its products or services?",
+        "type": "json_yes_no",
+        "json_key": "mentions_ai_response"
+    },
+    {
+        "id": "target_customer_segment",
+        "text": "According to the website, does the company primarily target mid-market or enterprise customers?",
+        "type": "text"
+    },
+    {
+        "id": "compliance_gdpr_iso_soc2",
+        "text": "Does the website mention compliance with standards like GDPR, ISO, or SOC2?",
+        "type": "json_yes_no",
+        "json_key": "compliance_response"
+    },
+    {
+        "id": "modern_tech_stack",
+        "text": "Does the website mention the use of a modern tech stack or architecture?",
+        "type": "json_yes_no",
+        "json_key": "modern_tech_stack_response"
     }
 ]
 
@@ -37,7 +94,7 @@ def get_openai_client():
         return None
 
 @llm_memory.cache
-def get_structured_responses(text_content: str, questions_config: list[dict], client_config: dict, model="gpt-3.5-turbo"):
+def get_structured_responses(text_content: str, questions_config: list[dict], client_config: dict, model="gpt-4.1"):
     """
     Uses OpenAI GPT to answer a list of fixed questions based on the provided text content.
     This function is cached.
@@ -62,7 +119,7 @@ def get_structured_responses(text_content: str, questions_config: list[dict], cl
 
     responses = {}
     max_tokens_per_response = 200
-    json_model = "gpt-3.5-turbo-0125" # Model that supports JSON mode
+    json_model = "gpt-4.1" # Changed from o1-mini
 
     max_chars_for_content = 40000 
     if len(text_content) > max_chars_for_content:
